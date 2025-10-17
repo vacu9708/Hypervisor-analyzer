@@ -1,6 +1,6 @@
 # Description
 <img src="https://github.com/user-attachments/assets/d4a40ab2-8d29-4d0e-8c65-48245d5bd141" width="70%"><br>
-This project aims to analyze memory layouts of a game to identify entity positions in RAM, and draw rectangles around them.
+This project aims to learn to reverse-engineer a process to identify specific information in memory.
 
 # Prior knowledge
 ## Hypervisor
@@ -23,7 +23,8 @@ The hypervisor in this project only works in the intel CPU.
 
 [Explanation of World To Screen](https://github.com/vacu9708/Game-hacking/blob/main/World%20To%20Screen/World%20To%20Screen.pdf)
 
-# Steps to track player positions
+# Steps to track specific information
+The "specific information" here is player positions in a video game.
 ## 1. Find the memory addresses where position info is stored
 I used `scanner.cpp` and `candidate_analyer.cpp` to find memory addresses where position info(player's and enemies') is stored.<br>
 Keep filtering out candidate addresses by setting some conditions such as:
