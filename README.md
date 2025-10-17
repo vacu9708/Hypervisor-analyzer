@@ -1,6 +1,6 @@
 # Description
 <img src="https://github.com/user-attachments/assets/d4a40ab2-8d29-4d0e-8c65-48245d5bd141" width="70%"><br>
-This project aims to learn to reverse-engineer a process to identify specific information in memory.
+This project aims to learn to reverse-engineer a protected process to identify specific information in memory.
 
 # Prior knowledge
 ## Hypervisor
@@ -36,7 +36,7 @@ Keep filtering out candidate addresses by setting some conditions such as:
 For the player, the facing direction [-1, 1] is needed in addition to the player's 3D coordinates to perform the **World To Screen** computation below.<br>
 The facing direction is likely to be stored in the same struct where the player's 3D coordinates are located.
 
-## 2. Use the hypervisor to find the instruction addresses executed at the moment the indentified memory addresses are accessed.
+## 2. Use the hypervisor to find the assembly instructions executed at the moment the indentified memory addresses are accessed.
 The memory addreseses found above change after the process restarts because they are **dynamically allocated**.<br>
 Therefore, they cannot consistently be used, which is why this step is necessary.
 ![image](https://github.com/user-attachments/assets/20aa7248-e6e2-42f4-af05-42e0bd7d0ebd)
@@ -47,7 +47,7 @@ Therefore, they cannot consistently be used, which is why this step is necessary
 4. Modify the instruction offset in `instruction_offset_calculator.cpp` -> offset = process's base address - instruction address(i.e. RIP register)
 
 ## 3. Use the found instruction addresses to get the addresses where the position info is stored
-This step takes advantage of the fact that the memory addresses where position info is stored can consistently be found using the instructions executed at the moment they are accessed.<br>
+This step takes advantage of the instructions found in `Step 2` to constantly track position info.<br>
 ![image](https://github.com/user-attachments/assets/a19d5583-8bec-45ee-8621-8b7e14b0670c)
 
 Run `position_addresses_generator.py` that does the following :
