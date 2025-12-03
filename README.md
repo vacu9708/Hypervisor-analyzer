@@ -1,66 +1,86 @@
 # Description
 <img src="https://github.com/user-attachments/assets/d4a40ab2-8d29-4d0e-8c65-48245d5bd141" width="70%"><br>
-This project aims to learn to reverse-engineer a protected process to identify specific information in memory.
 
-# Prior knowledge
-## Hypervisor
+This project is an educational reverse-engineering and systems project that implements a hypervisor-assisted runtime memory analysis and visualization tool for a protected 3D Windows application.  
+The goal is to learn how to identify and track specific runtime data (e.g., world-space positions of entities) in memory under anti-debugging and protection mechanisms.
+
+# Hypervisor
 ![image](https://github.com/user-attachments/assets/8f9f1214-fff0-4f37-a044-aaf98f18e9b9)
 
 A hypervisor (also called a virtual machine monitor or VMM) is a software layer that allows different operating systems to run concurrently on the same hardware while remaining isolated from each other.
+
 - **Why use the hypervisor:**
-    - This project takes advantage of the fact that Windows applications cannot detect the existence of the hypervisor because it operates outside the windows kernel.
-    - The hypervisor functions as a debugger to circumvent anti-debugging mechanisms that block conventional debuggers.
-        - Debugging using the **Vectored Exception Handling** after DLL injection is blocked by anti-debugging mechanisms
-        - Debugging using the **WIN APIs** is also blocked
-- **What the hypervisor does:** The hypervisor shows CPU registers upon EPT violations at specific memory addresses just like normal debuggers show CPU registers upon breakpoints.
-- **What EPT Violation (Extended Page Table Violation) means**: An EPT (Extended Page Table) violation is a type of page fault that occurs in Intel VT-x virtualization when a guest virtual machine (VM) attempts to access memory in a way that violates the Extended Page Table (EPT) permissions set by the hypervisor.
+    - Because the hypervisor operates below the Windows kernel, the analyzed application cannot directly detect or interfere with it.
+    - The hypervisor effectively functions as an out-of-guest debugger, enabling observation of a protected process even when in-guest debuggers are restricted by anti-debugging mechanisms.
+        - Debugging using **Vectored Exception Handling** after DLL injection is blocked by anti-debugging mechanisms.
+        - Debugging using **Win32 debugging APIs** is also blocked.
+- **What the hypervisor does:**  
+  The hypervisor exposes CPU registers when EPT (Extended Page Table) violations occur at specific guest-physical memory addresses, in a similar way that traditional debuggers expose registers at breakpoints.
+- **What EPT Violation (Extended Page Table Violation) means:**  
+  An EPT violation is a type of page fault that occurs in Intel VT-x virtualization when a guest virtual machine (VM) attempts to access memory in a way that violates the EPT permissions configured by the hypervisor.
 
-The hypervisor in this project only works in the intel CPU.
-
-## World To Screen
-**World-To-Screen** computation refers to the process of converting a 3D point in world space to a 2D point on the screen.<br>
-![image](https://github.com/user-attachments/assets/9e801bc4-fa55-44f8-9bd6-96fe1bc44155)
-
-[Explanation of World To Screen](https://github.com/vacu9708/Game-hacking/blob/main/World%20To%20Screen/World%20To%20Screen.pdf)
+The hypervisor used in this project targets Intel CPUs (VT-x with EPT).
 
 # Steps to track specific information
-The "specific information" here is player positions in a video game.
-## 1. Find the memory addresses where position info is stored
-I used `scanner.cpp` and `candidate_analyer.cpp` to find memory addresses where position info(player's and enemies') is stored.<br>
-Keep filtering out candidate addresses by setting some conditions such as:
-- 3 contiguous float values
-- Not out of a range, e.g. [123456, -123456]
-- Non-zero
-- Values changed after the position changes in the game
 
-For the player, the facing direction [-1, 1] is needed in addition to the player's 3D coordinates to perform the **World To Screen** computation below.<br>
-The facing direction is likely to be stored in the same struct where the player's 3D coordinates are located.
+In this prototype, the “specific information” is the world-space positions of entities (e.g., the local player and other actors) inside a 3D application.
 
-## 2. Use the hypervisor to find the assembly instructions executed at the moment the indentified memory addresses are accessed.
-The memory addreseses found above change after the process restarts because they are **dynamically allocated**.<br>
-Therefore, they cannot consistently be used, which is why this step is necessary.
+## 1. Find the memory addresses where position information is stored
+
+`scanner.cpp` and `candidate_analyzer.cpp` are used to scan the target process memory and identify candidate addresses that likely store 3D position data.
+
+Candidate addresses are filtered using conditions such as:
+
+- Three contiguous `float` values (x, y, z).
+- Values staying within a valid numeric range, e.g. `[−123456, 123456]`.
+- Non-zero values.
+- Values changing in a correlated way when the entity’s position changes in the application.
+
+For the local entity, an additional value representing the facing direction (e.g. in the range `[-1, 1]`) is needed along with the 3D coordinates to perform the **World To Screen** computation described below.  
+This facing direction is likely stored in the same struct as the 3D coordinates.
+
+## 2. Use the hypervisor to find the assembly instructions executed when the identified memory addresses are accessed
+
+The memory addresses found in step 1 are dynamically allocated and change after the process restarts, so they cannot be used as stable identifiers.  
+To make the tracking robust, this step identifies the instructions that access those addresses.
+
 ![image](https://github.com/user-attachments/assets/20aa7248-e6e2-42f4-af05-42e0bd7d0ebd)
 
-1. Run the `hypervisor device driver`
-2. Execute `./MyHypervisorApp.exe [process ID] [memory address] 1`, which sets up an access violation at the specified memory address
-3. Get the value in the RIP register that `MyHypervisorApp.exe` prints each time the target address is accessed
-4. Modify the instruction offset in `instruction_offset_calculator.cpp` -> offset = process's base address - instruction address(i.e. RIP register)
+1. Run the hypervisor device driver.
+2. Execute `./MyHypervisorApp.exe [process ID] [memory address] 1`, which configures the hypervisor to trigger an EPT access violation whenever the specified guest-physical address is accessed.
+3. Each time the target address is accessed, `MyHypervisorApp.exe` receives the VM-exit information and prints the current value of the RIP register (the guest instruction pointer).
+4. Use `instruction_offset_calculator.cpp` to compute the instruction offset as:  
+   `offset = instruction_address (RIP) − process_base_address`.
 
-## 3. Use the found instruction addresses to get the addresses where the position info is stored
-This step takes advantage of the instructions found in `Step 2` to constantly track position info.<br>
+These instruction-relative offsets can be reused after restarts by recomputing the absolute addresses from the new module base.
+
+## 3. Use the instruction addresses to recover the runtime addresses of the position data
+
+This step uses the stable instruction locations found in step 2 to continuously rediscover the actual data addresses where position information is stored, even across process restarts.
+
 ![image](https://github.com/user-attachments/assets/a19d5583-8bec-45ee-8621-8b7e14b0670c)
 
-Run `position_addresses_generator.py` that does the following :
-1. Adds the target app's base address to the target instrunctions' offset to calculate instruction addresses, and save them to a file.
-2. Uses the hypervisor to capture the moments when EPT violations are triggered at the target instruction addresses, and obtains the adresses of position info
+`position_addresses_generator.py` performs the following:
 
-## 4. Track player positions by performing "World To Screen" matrix computation
-Run `rectangle_drawer.cpp` that does the following :
-1. Extracts the position info(3D world coordinates of the player and enemies) from the found addresses where the position info is stored.
-2. Performs World To Screen computation to convert 3D world coordinates to 2D screen coordinates, considering the following:
-    - The game where I tested this project has a right-handed coordinate system.
-    - It also uses vertical FOV.
-4. Draw rectangles around the screen coordinates on the screen.
+1. Adds the current base address of the target module to the stored instruction offsets to compute the absolute instruction addresses, then saves them to a file.
+2. Configures the hypervisor to trigger EPT violations on those instruction addresses and, when the VM exits, inspects the memory operands to obtain the actual addresses of the position data structures.
+
+As a result, the toolchain can re-identify the relevant data structures after each process start without hardcoding raw pointers.
+
+## 4. Track entity positions using "World To Screen" matrix computation
+[**World-To-Screen**](https://github.com/vacu9708/Game-hacking/blob/main/World%20To%20Screen/World%20To%20Screen.pdf) computation refers to the process of converting a 3D point in world space to a 2D point on the screen.<br>
+![image](https://github.com/user-attachments/assets/9e801bc4-fa55-44f8-9bd6-96fe1bc44155)
+
+`rectangle_drawer.cpp` is responsible for visualization and performs:
+
+1. Reading the position information (3D world coordinates for the local entity and other entities) from the reconstructed addresses.
+2. Applying a World-To-Screen transformation to convert 3D world coordinates into 2D screen-space coordinates, taking into account:
+    - The application’s right-handed coordinate system.
+    - A vertical field-of-view (vertical FOV) projection.
+3. Rendering simple rectangles around the projected 2D positions for visual inspection and debugging.
+
+This end-to-end flow demonstrates how to combine hypervisor-based dynamic analysis, reverse-engineering of data structures, and 3D math to build a transparent runtime visualization tool for a protected 3D application.
 
 # Result
-[a](https://github.com/user-attachments/assets/6b9f77b8-544e-47e3-9b92-c3f8a80dcb90)
+
+[Demo video](https://github.com/user-attachments/assets/6b9f77b8-544e-47e3-9b92-c3f8a80dcb90)
